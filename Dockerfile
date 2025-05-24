@@ -1,59 +1,41 @@
-FROM ubuntu:plucky
-ENV GRADLE_VERSION=8.14
-ARG GRADLE_DOWNLOAD_SHA256=61ad310d3c7d3e5da131b76bbf22b5a4c0786e9d892dae8c1658d4b484de3caa
-
-CMD ["gradle", "run"]
-
-ENV GRADLE_HOME=/opt/gradle
+FROM ubuntu:plucky AS builder
 
 RUN apt-get update && apt-get upgrade --yes
 RUN apt-get install --yes --no-install-recommends wget unzip coreutils openjdk-21-jdk
 
-RUN set -o errexit -o nounset \
-    && echo "Renaming ubuntu user and group to gradle" \
-    && groupmod --new-name gradle ubuntu \
-    && mkdir /home/gradle \
-    && usermod --login gradle --home /home/gradle --groups gradle ubuntu \
-    && chown gradle /home/gradle \
-    && mkdir /home/gradle/.gradle \
-    && chown --recursive gradle:gradle /home/gradle \
-    && chmod --recursive o+rwx /home/gradle \
-    \
-    && echo "Symlinking root Gradle cache to gradle Gradle cache" \
-    && ln --symbolic /home/gradle/.gradle /root/.gradle
-
-VOLUME /home/gradle/.gradle
-
+ENV GRADLE_HOME=/opt/gradle
 WORKDIR /home/gradle
-
-RUN set -o errexit -o nounset \
-    && echo "Downloading Gradle" \
-    && wget --no-verbose --output-document=gradle.zip "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" \
-    \
-    && echo "Checking Gradle download hash" \
-    && echo "${GRADLE_DOWNLOAD_SHA256} *gradle.zip" | sha256sum --check - \
-    \
-    && echo "Installing Gradle" \
-    && unzip gradle.zip \
-    && rm gradle.zip \
-    && mv "gradle-${GRADLE_VERSION}" "${GRADLE_HOME}/" \
-    && ln --symbolic "${GRADLE_HOME}/bin/gradle" /usr/bin/gradle
-
-USER gradle
-
-RUN set -o errexit -o nounset \
-    && echo "Testing Gradle installation" \
-    && gradle --version
 
 # gradle
 COPY gradle/ ./gradle/
-COPY gradlew ./
+COPY gradlew .
 COPY gradle.properties ./
-#COPY build.gradle ./
 COPY settings.gradle ./
+
+RUN set -o errexit -o nounset
+RUN echo "Testing Gradle installation"
+RUN ./gradlew --version
 
 COPY app/ ./app/
 
-USER root
+RUN ./gradlew assemble --no-daemon  --info --stacktrace
+
+
+FROM ubuntu:plucky AS runner
+
+RUN apt-get update && apt-get upgrade --yes
+RUN apt-get install --yes --no-install-recommends openjdk-21-jre
+
+WORKDIR /home/gradle
+
+COPY --from=builder /home/gradle/gradle gradle
+COPY --from=builder /home/gradle/.gradle .gradle
+COPY --from=builder /home/gradle/gradlew .
+COPY --from=builder /home/gradle/gradle.properties .
+COPY --from=builder /home/gradle/settings.gradle .
+COPY --from=builder /home/gradle/app ./app
+
 RUN ./gradlew run --info --stacktrace
 
+USER root
+CMD ["./gradlew", "run"]

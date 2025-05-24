@@ -16,6 +16,10 @@ repositories {
     mavenCentral()
 }
 
+tasks.compileJava {
+    options.forkOptions.jvmArgs = ["--enable-native-access=ALL-UNNAMED"]
+}
+
 //dependencies {
 //    // This dependency is used by the application.
 //   implementation libs.guava
